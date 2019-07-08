@@ -21,6 +21,7 @@ import ctypes
 from ctypes import Structure
 from ctypes import c_int8, c_int16, c_int32, c_int64, c_uint8, c_uint16, c_uint32, c_uint64, c_float, c_double
 from datetime import datetime
+import mmap
 
 class TeaFile:
     '''
@@ -107,7 +108,7 @@ class TeaFile:
         '''
         Open a TeaFile for read only.
         '''
-        tf = TeaFile._open(filename, "rb")
+        tf = TeaFile._open(filename, "r")
         tf.write = None
 
         return tf
@@ -120,7 +121,7 @@ class TeaFile:
         The file returned will have its *filepointer set to the end of the file*, as this function
         calls seekend() before returning the TeaFile instance.
         '''
-        tf = TeaFile._open(filename, "r+b")
+        tf = TeaFile._open(filename, "r+")
         tf.seekend()
         return tf
 
@@ -169,8 +170,9 @@ class TeaFile:
         '''
         Sets the file pointer to the item at index `temindex`.
         '''
-        if self.write is None:
+        if self.write is not None:
             raise RuntimeError("seeking in write mode not supported")
+
         self.file.seek(self.itemareastart + itemindex * self.itemsize)
 
     def seekend(self):
@@ -187,7 +189,7 @@ class TeaFile:
         Optional, the range of the iterator can be returned
         '''
 
-        if self.write is None:
+        if self.write is not None:
             raise RuntimeError("reading in write mode not supported")
 
         self.seekitem(start)
@@ -198,6 +200,29 @@ class TeaFile:
         while current < end:
             yield self.read()
             current += 1
+
+    def mmapitems(self, start=0, end=None):
+        '''
+        Returns an iterator over the items. The read is done by mmaping the file to memory
+        '''
+
+        if self.write is not None:
+            raise RuntimeError("reading in write mode not supported")
+        self.seekitem(0)
+        if not end:
+            end = self.itemcount
+        end = min(end, self.itemcount)
+
+        endpos = self.itemareastart + end * self.itemsize
+
+        mm = mmap.mmap(self.file.fileno(), 0, access=mmap.PROT_READ|mmap.PROT_WRITE)
+        current = self.itemareastart + start * self.itemsize
+        while current < endpos:
+            yield self.datatype.from_buffer(mm, current)
+            current += self.itemsize
+
+        mm.close()
+
 
     @property
     def itemcount(self):
