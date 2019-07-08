@@ -16,7 +16,4 @@
 from teafiles.teafile import *
 __all__ = ["TeaFile"]
 
-from teafiles.clockwise import *
-__all__.extend(["DateTime", "Duration", "range", "rangen"])
-
 version = "0.7.4"
