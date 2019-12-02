@@ -44,7 +44,7 @@ class TeaFile:
 
     #pylint:disable-msg=R0902,W0212
 
-    # the factory methods at the module level, `create`, `openread` and `openwrite` should be used to create instances of this class.
+    # the factory methods at the module level, `create`, `open_read` and `open_write` should be used to create instances of this class.
     def __init__(self, filename):
         self.decimals = -1
 
@@ -53,12 +53,12 @@ class TeaFile:
 
         self._description = None
 
-        self.itemareastart = None
-        self._itemareaend = None
-        self.itemsize = None
+        self.item_area_start = None
+        self._item_area_end = None
+        self.item_size = None
 
     @staticmethod
-    def create(filename, datatype, contentdescription=None, namevalues=None):
+    def create(filename, datatype, content_description=None, name_values=None):
         '''
         creates a new file and writes its header based on the description passed.
         leaves the file open, such that items can be added immediately. the caller must close the
@@ -84,10 +84,10 @@ class TeaFile:
         # setup description
         tf._description = d = TeaFileDescription()
         id_ = ItemDescription.create(datatype)
-        d.itemdescription = id_
-        d.contentdescription = contentdescription
-        d.namevalues = namevalues
-        d.timescale = TimeScale.java()
+        d.item_description = id_
+        d.content_description = content_description
+        d.name_values = name_values
+        d.time_scale = TimeScale.java()
 
         # open file and write header
 
@@ -95,54 +95,54 @@ class TeaFile:
         hm = _HeaderManager()
         fio = _FileIO(tf.file)
         fw = _FormattedWriter(fio)
-        wc = hm.writeheader(fw, tf._description)
-        tf.itemareastart = wc.itemareastart
-        tf._itemareaend = wc.itemareaend
-        tf.itemsize = id_.itemsize
+        wc = hm.write_header(fw, tf._description)
+        tf.item_area_start = wc.item_area_start
+        tf._item_area_end = wc.item_area_end
+        tf.item_size = id_.item_size
 
         tf.flush()
         return tf
 
     @staticmethod
-    def openread(filename):
+    def open_read(filename):
         '''
         Open a TeaFile for read only.
         '''
-        tf = TeaFile._open(filename, "r")
+        tf = TeaFile._open(filename, "rb")
         tf.write = None
 
         return tf
 
     @staticmethod
-    def openwrite(filename):
+    def open_write(filename):
         '''
         Open a TeaFile for read and write.
 
         The file returned will have its *filepointer set to the end of the file*, as this function
         calls seekend() before returning the TeaFile instance.
         '''
-        tf = TeaFile._open(filename, "r+")
-        tf.seekend()
+        tf = TeaFile._open(filename, "r+b")
+        tf.see_kend()
         return tf
 
     @staticmethod
     def _open(filename, mode):
-        ''' internal open method, used by openread and openwrite '''
+        ''' internal open method, used by open_read and open_write '''
         tf = TeaFile(filename)
         tf.file = open(filename, mode)
         fio = _FileIO(tf.file)
         fr = _FormattedReader(fio)
         hm = _HeaderManager()
-        rc = hm.readheader(fr)
+        rc = hm.read_header(fr)
         tf._description = rc.description
-        id_ = tf._description.itemdescription
+        id_ = tf._description.item_description
         if id_:
-            tf.itemsize = id_.itemsize
+            tf.item_size = id_.item_size
             tf.datatype = id_.datatype
-        tf.itemareastart = rc.itemareastart
-        tf._itemareaend = rc.itemareaend
+        tf.item_area_start = rc.item_area_start
+        tf._item_area_end = rc.item_area_end
 
-        nvs = tf._description.namevalues
+        nvs = tf._description.name_values
         if nvs and nvs.get("decimals"):
             tf.decimals = nvs["decimals"]
         return tf
@@ -166,16 +166,16 @@ class TeaFile:
 
         self.file.flush()
 
-    def seekitem(self, itemindex):
+    def seek_item(self, item_index):
         '''
         Sets the file pointer to the item at index `temindex`.
         '''
         if self.write is not None:
             raise RuntimeError("seeking in write mode not supported")
 
-        self.file.seek(self.itemareastart + itemindex * self.itemsize)
+        self.file.seek(self.item_area_start + item_index * self.item_size)
 
-    def seekend(self):
+    def seek_end(self):
         '''
         Sets the file pointer past the last item.
         '''
@@ -192,10 +192,10 @@ class TeaFile:
         if self.write is not None:
             raise RuntimeError("reading in write mode not supported")
 
-        self.seekitem(start)
+        self.seek_item(start)
         if not end:
-            end = self.itemcount
-        end = min(end, self.itemcount)
+            end = self.item_count
+        end = min(end, self.item_count)
         current = start
         while current < end:
             yield self.read()
@@ -204,41 +204,64 @@ class TeaFile:
     def mmapitems(self, start=0, end=None):
         '''
         Returns an iterator over the items. The read is done by mmaping the file to memory
+        each item has to be deleted with 'del item' after it has been used
         '''
 
         if self.write is not None:
             raise RuntimeError("reading in write mode not supported")
-        self.seekitem(0)
+        self.seek_item(0)
         if not end:
-            end = self.itemcount
-        end = min(end, self.itemcount)
+            end = self.item_count
+        end = min(end, self.item_count)
 
-        endpos = self.itemareastart + end * self.itemsize
+        endpos = self.item_area_start + end * self.item_size
 
         mm = mmap.mmap(self.file.fileno(), 0, access=mmap.PROT_READ|mmap.PROT_WRITE)
-        current = self.itemareastart + start * self.itemsize
+        current = self.item_area_start + start * self.item_size
         while current < endpos:
             yield self.datatype.from_buffer(mm, current)
-            current += self.itemsize
+            current += self.item_size
+
+        mm.close()
+
+    def open_readable_mapping(self):
+        '''
+        Returns an iterator over the items. The read is done by mmaping the file to memory
+        '''
+
+        if self.write is not None:
+            raise RuntimeError("reading in write mode not supported")
+        self.seek_item(0)
+        if not end:
+            end = self.item_count
+        end = min(end, self.item_count)
+
+        endpos = self.item_area_start + end * self.item_size
+
+        mm = mmap.mmap(self.file.fileno(), 0, access=mmap.PROT_READ|mmap.PROT_WRITE)
+        current = self.item_area_start + start * self.item_size
+        while current < endpos:
+            yield self.datatype.from_buffer(mm, current)
+            current += self.item_size
 
         mm.close()
 
 
     @property
-    def itemcount(self):
+    def item_count(self):
         ''' The number of items in the file. '''
-        return self._getitemareasize() / self.itemsize
+        return self._get_item_area_size() / self.item_size
 
-    def _getitemareaend(self):
+    def _get_item_area_end(self):
         ''' the end of the item area, as an integer '''
         import os
-        if self._itemareaend:
-            return self._itemareaend
+        if self._item_area_end:
+            return self._item_area_end
         return os.path.getsize(self._filename)
 
-    def _getitemareasize(self):
+    def _get_item_area_size(self):
         ''' the item area size, as an integer '''
-        return self._getitemareaend() - self.itemareastart
+        return self._get_item_area_end() - self.item_area_start
 
     def close(self):
         '''
@@ -272,25 +295,25 @@ class TeaFile:
         return self._description
 
     def __repr__(self):
-        return  "TeaFile('{}') {} items".format(self._filename, self.itemcount)
+        return  "TeaFile('{}') {} items".format(self._filename, self.item_count)
 
     @staticmethod
-    def printitems(filename, maxnumberofitems=10):
+    def print_items(filename, max_items=10):
         '''
         Prints all items in the file. By default at most 10 items are printed.
         '''
-        with TeaFile.openread(filename) as tf:
+        with TeaFile.open_read(filename) as tf:
             from itertools import islice
-            print(list(islice(tf.items(), maxnumberofitems)))
-            if tf.itemcount > maxnumberofitems:
-                print ("{} of {} items".format(maxnumberofitems, tf.itemcount))
+            print(list(islice(tf.items(), max_items)))
+            if tf.item_count > max_items:
+                print ("{} of {} items".format(max_items, tf.item_count))
 
     @staticmethod
-    def printsnapshot(filename):
+    def print_snapshot(filename):
         '''
         Prints a snapshot of an existing file, that is its complete description and the first 5 items.
         '''
-        with TeaFile.openread(filename) as tf:
+        with TeaFile.open_read(filename) as tf:
             print(tf)
             print("")
             print(tf.description)
@@ -328,9 +351,9 @@ class TimeScale:
     between applications and operating systems. In this spirit, the clockwise module in this package uses this
     1970 / millisecond time scale.
     '''
-    def __init__(self, epoch, ticksperday):
+    def __init__(self, epoch, ticks_per_day):
         self._epoch = epoch
-        self._ticksperday = ticksperday
+        self._ticks_per_day = ticks_per_day
 
     @staticmethod
     def java():
@@ -346,9 +369,9 @@ class TimeScale:
             Returns 'Net' if epoch == 0 (0001-01-01) and ticksperday == 86400 * 1000 * 1000 * 10.
             Returns None otherwise.
         '''
-        if self._epoch == 719162 and self._ticksperday == 86400000:
+        if self._epoch == 719162 and self._ticks_per_day == 86400000:
             return "Java"
-        if self._epoch == 0 and self._ticksperday == 864000000000:
+        if self._epoch == 0 and self._ticks_per_day == 864000000000:
             return "Net"
         return None
 
@@ -376,6 +399,12 @@ class _FileIO:
 
     def readint64(self):
         ''' read a 64bit signed integer from the file '''
+        bytes_ = self.file.read(8)
+        value = struct.unpack("q", bytes_)[0]
+        return value
+
+    def readuint64(self):
+        ''' read a 64bit unsigned integer from the file '''
         bytes_ = self.file.read(8)
         value = struct.unpack("q", bytes_)[0]
         return value
@@ -437,6 +466,10 @@ class _FormattedReader:
         ''' read int64 '''
         return self.fio.readint64()
 
+    def readuint64(self):
+        ''' read uint64 '''
+        return self.fio.readuint64()
+
     def readdouble(self):
         ''' read double '''
         return self.fio.readdouble()
@@ -475,6 +508,8 @@ class _FormattedReader:
             value = self.readtext()
         elif kind == _ValueKind.Uuid:
             value = self.readuuid()
+        elif kind == _ValueKind.Uint64:
+            value = self.readuint64()
         return {name: value}
 
 
@@ -549,20 +584,20 @@ class TeaFileDescription:
     #pylint: disable-msg=R0903
 
     def __init__(self):
-        self.itemdescription = None
-        self.contentdescription = None
-        self.namevalues = None
-        self.timescale = None
+        self.item_description = None
+        self.content_description = None
+        self.name_values = None
+        self.time_scale = None
 
     def __repr__(self):
         return "ItemDescription\n{}" \
                "\n\nContentDescription\n{}" \
                "\n\nNameValues\n{}" \
                "\n\nTimeScale\n{}" \
-                .format(self.itemdescription, \
-                    self.contentdescription, \
-                    self.namevalues, \
-                    self.timescale)
+                .format(self.item_description, \
+                    self.content_description, \
+                    self.name_values, \
+                    self.time_scale)
 
 
 class ItemDescription:
@@ -576,16 +611,16 @@ class ItemDescription:
         its type.
     '''
     def __init__(self):
-        self.itemsize = 0
-        self.itemname = ""
+        self.item_size = 0
+        self.item_name = ""
         self.fields = []
-        self.fieldnames = None
+        self.field_names = None
         self.datatype = None
 
     def __repr__(self):
         from pprint import pformat
         return "Name:\t{}\nSize:\t{}\nFields:\n{}" \
-            .format(self.itemname, self.itemsize, pformat(self.fields))
+            .format(self.item_name, self.item_size, pformat(self.fields))
 
     @staticmethod
     def create(datatype):
@@ -603,8 +638,8 @@ class ItemDescription:
             raise RuntimeError("TeaFile expects a ctype Structure")
 
         # create Fields
-        id_.itemsize = ctypes.sizeof(datatype)
-        id_.itemname = datatype.__name__
+        id_.item_size = ctypes.sizeof(datatype)
+        id_.item_name = datatype.__name__
         i = 0
         for field in datatype._fields_:
             f = Field()
@@ -612,13 +647,13 @@ class ItemDescription:
             df = getattr(datatype, f.name)
             f.offset = df.offset
             f.index = i
-            f.fieldtype = FieldType.typetofieldtype(field[1])
+            f.fieldtype = FieldType.type_to_fieldtype(field[1])
             i += 1
             id_.fields.append(f)
 
         return id_
 
-    def getfieldbyoffset(self, offset):
+    def get_field_by_offset(self, offset):
         ''' Returns a field given its offset '''
         for f in self.fields:
             if f.offset == offset:
@@ -626,11 +661,11 @@ class ItemDescription:
         print("field not found at offset{0}".format(offset))
         raise RuntimeError()
 
-    def setupfromfields(self):
+    def setup_from_fields(self):
         structfields = []
         for f in self.fields:
-            structfields.append((f.name, FieldType.fieldtypetotype(f.fieldtype)))
-        datatype = type(str(self.itemname), (Structure,), {
+            structfields.append((f.name, FieldType.fieldtype_to_type(f.fieldtype)))
+        datatype = type(str(self.item_name), (Structure,), {
             "_pack_": 0,
             "_fields_": structfields,
         })
@@ -650,7 +685,7 @@ class FieldType:
     _typeNames = [None, "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Float", "Double"]
 
     @staticmethod
-    def typetofieldtype(typ):
+    def type_to_fieldtype(typ):
         if typ == c_int8:
             return 1
         if typ == c_int16:
@@ -674,7 +709,7 @@ class FieldType:
         raise RuntimeError("Unknown structure's field type")
 
     @staticmethod
-    def fieldtypetotype(fieldtype):
+    def fieldtype_to_type(fieldtype):
         return FieldType._types[fieldtype]
 
     @staticmethod
@@ -702,7 +737,7 @@ class Field:
             # TODO transform timestamp to the definied precision
         return value
 
-    def decoratetime(self, item):
+    def decorate_time(self, item):
         value = item[self.index]
         if isinstance(value, datetime):
             value = value.timestamp()
@@ -720,18 +755,18 @@ class _ReadContext:
     def __init__(self, formattedreader):
         self.reader = formattedreader
         self.description = TeaFileDescription()
-        self.itemareastart = None
-        self.itemareaend = None
-        self.sectioncount = None
+        self.item_area_start = None
+        self.item_area_end = None
+        self.section_count = None
 
 
 class _WriteContext:
     ''' context used for header writing '''
     def __init__(self, formattedwriter):
         self.writer = formattedwriter
-        self.itemareastart = None
-        self.itemareaend = None
-        self.sectioncount = None
+        self.item_area_start = None
+        self.item_area_end = None
+        self.section_count = None
         self.description = None
 
 
@@ -743,11 +778,11 @@ class _ItemSectionFormatter:
         ''' read the section '''
         id_ = ItemDescription()
         r = rc.reader
-        id_.itemsize = r.readint32()
-        id_.itemname = r.readtext()
-        fieldcount = r.readint32()
+        id_.item_size = r.readint32()
+        id_.item_name = r.readtext()
+        field_count = r.readint32()
         i = 0
-        for _ in range(fieldcount):
+        for _ in range(field_count):
             f = Field()
             f.index = i
             f.fieldtype = r.readint32()
@@ -755,15 +790,15 @@ class _ItemSectionFormatter:
             f.name = r.readtext()
             id_.fields.append(f)
             i += 1
-        id_.setupfromfields()
-        rc.description.itemdescription = id_
+        id_.setup_from_fields()
+        rc.description.item_description = id_
 
     def write(self, wc):
         ''' writes the section '''
-        id_ = wc.description.itemdescription
+        id_ = wc.description.item_description
         w = wc.writer
-        w.writeint32(id_.itemsize)
-        w.writetext(id_.itemname)
+        w.writeint32(id_.item_size)
+        w.writetext(id_.item_name)
         w.writeint32(len(id_.fields))
         for f in id_.fields:
             w.writeint32(f.fieldtype)
@@ -778,11 +813,11 @@ class _ContentSectionFormatter:
     def read(self, rc):
         ''' read the section '''
         r = rc.reader
-        rc.description.contentdescription = r.readtext()
+        rc.description.content_description = r.readtext()
 
     def write(self, wc):
         ''' writes the section '''
-        cd = wc.description.contentdescription
+        cd = wc.description.content_description
         if cd:
             wc.writer.writetext(cd)
 
@@ -802,11 +837,11 @@ class _NameValueSectionFormatter:
             nv = r.readnamevalue()
             nvc.update(nv)
             n = n - 1
-        rc.description.namevalues = nvc
+        rc.description.name_values = nvc
 
     def write(self, wc):
         ''' writes the section '''
-        nvs = wc.description.namevalues
+        nvs = wc.description.name_values
         if not nvs:
             return
         w = wc.writer
@@ -833,11 +868,11 @@ class _TimeSectionFormatter:
         if timefieldcount == 0:
             return
 
-        id_ = rc.description.itemdescription
+        id_ = rc.description.item_description
         isfirsttimefield = True
         for _ in range(timefieldcount):
             o = r.readint32()
-            f = id_.getfieldbyoffset(o)
+            f = id_.get_field_by_offset(o)
             f.istime = True
             f.iseventtime = isfirsttimefield
             isfirsttimefield = False
@@ -849,7 +884,7 @@ class _TimeSectionFormatter:
         # in addition, the first field named "time" is considered the EventTime
         w.writeint64(719162)        # days between 0001-01-01 and 1970-01-01
         w.writeint64(86400 * 1000)  # millisecond resolution
-        id_ = wc.description.itemdescription
+        id_ = wc.description.item_description
         timefields = [f for f in id_.fields if f.name.lower() == "time"]
         w.writeint32(len(timefields))   # will be 0 or 1
         for f in timefields:
@@ -872,25 +907,25 @@ class _HeaderManager:
                 return f
         raise RuntimeError()
 
-    def readheader(self, r):
+    def read_header(self, r):
         ''' read the file header '''
         rc = _ReadContext(r)
         bom = r.readint64()
         if bom != 0x0d0e0a0402080500:
             print("Byteordermark mismatch: ", bom)
             raise RuntimeError()
-        rc.itemareastart = r.readint64()
-        rc.itemareaend = r.readint64()
-        rc.sectioncount = r.readint64()
-        n = rc.sectioncount
+        rc.item_area_start = r.readint64()
+        rc.item_area_end = r.readint64()
+        rc.section_count = r.readint64()
+        n = rc.section_count
         while n > 0:
-            self.readsection(rc)
+            self.read_section(rc)
             n = n - 1
-        bytestoskip = rc.itemareastart - r.position()   # padding bytes between header and item area
+        bytestoskip = rc.item_area_start - r.position()   # padding bytes between header and item area
         r.skipbytes(bytestoskip)
         return rc
 
-    def readsection(self, rc):
+    def read_section(self, rc):
         ''' read a section '''
         r = rc.reader
         sectionid = r.readint32()
@@ -903,19 +938,19 @@ class _HeaderManager:
             print("section reads too many bytes")
             raise RuntimeError()
 
-    def writeheader(self, fw, description):
+    def write_header(self, fw, description):
         ''' write the file header '''
         wc = _WriteContext(fw)
-        wc.itemareastart = 32
-        wc.itemareaend = 0     # no preallocation
+        wc.item_area_start = 32
+        wc.item_area_end = 0     # no preallocation
         wc.description = description
-        wc.sectioncount = 0
+        wc.section_count = 0
         sectionbytes = self.createsections(wc)
 
         fw.writeint64(0x0d0e0a0402080500)
-        fw.writeint64(wc.itemareastart)
-        fw.writeint64(wc.itemareaend)
-        fw.writeint64(wc.sectioncount)
+        fw.writeint64(wc.item_area_start)
+        fw.writeint64(wc.item_area_end)
+        fw.writeint64(wc.section_count)
         wc.writer.writeraw(sectionbytes)
 
         return wc
@@ -952,7 +987,7 @@ class _HeaderManager:
                 sectionwriter.writeraw(payloadstream.getvalue())
                 pos += size    # no padding or spacing done here
 
-                wc.sectioncount += 1
+                wc.section_count += 1
 
         # padding
         paddingbytes = 8 - pos % 8
@@ -961,7 +996,7 @@ class _HeaderManager:
         if paddingbytes:
             padding = b"\0" * paddingbytes
             sectionwriter.writeraw(padding)
-        wc.itemareastart = pos + paddingbytes  # first item starts padded on 8 byte boundary.
+        wc.item_area_start = pos + paddingbytes  # first item starts padded on 8 byte boundary.
 
         wc.writer = saved
         return sectionstream.getvalue()
